@@ -36,16 +36,26 @@ def top_3_accuracy(x,y):
 
 class DoodleModel():
 
-    def __init__(self,  x_train, y_train, x_test, y_test, epochs=10, l1_drop=0.1,
+    def __init__(self,  drawings, y, point_count=POINT_COUNT, 
+                 stroke_count=STROKE_COUNT,
+                 epochs=10, l1_drop=0.1,
                  l2_drop=0.1, l3_drop=0.1 ,l4_drop=0.1 ,l5_drop=0.1):
+        X = stack_3d_fast(drawings, stroke_count, point_count)
+        X = np.swapaxes(X, 2, 3)
+        
+        self._x_train, self._x_test, self._y_train, self._y_test = train_test_split(X, y, test_size=0.2,
+                                                            random_state=2)
+        self._y_test = np.array(self._y_test)
+        self._y_train = np.array(self._y_train)
         self.epochs = epochs
-        self._x_train, self._y_train, self._x_test, self._y_test = x_train, y_train, x_test, y_test
+        #self._x_train, self._y_train, self._x_test, self._y_test = x_train, y_train, x_test, y_test
         self.l1_drop = l1_drop
         self.l2_drop = l2_drop
         self.l3_drop = l3_drop
         self.l4_drop = l4_drop
         self.l5_drop = l5_drop
-        
+        self.point_count = point_count
+        self.stroke_count = stroke_count
         
         self._model = self.stroke_model()
         self.batch_size = 128
@@ -59,19 +69,20 @@ class DoodleModel():
         stroke_read_model = Sequential()
         #stroke_read_model.add(BatchNormalization(input_shape = (None,)+X.shape[2:]))
         # filter count and length are taken from the script https://github.com/tensorflow/models/blob/master/tutorials/rnn/quickdraw/train_model.py
-        stroke_read_model.add(Conv2D(16, (3,3), input_shape=(STROKE_COUNT, POINT_COUNT, 2 )))
+        stroke_read_model.add(Conv2D(16, (3,3), input_shape=(self.stroke_count,
+                                     self.point_count, 2 )))
         #stroke_read_model.add(Dropout(self.l1_drop)) #optimized to 0
         #stroke_read_model.add(MaxPooling2D(3,3))
-        stroke_read_model.add(Conv2D(32, (5,5)))
+        stroke_read_model.add(Conv2D(32, (5,5), padding='same'))
         stroke_read_model.add(Dropout(0.3)) #optimized to 0.3
-        stroke_read_model.add(Conv2D(64, (5,5)))
+        stroke_read_model.add(Conv2D(64, (5,5), padding='same'))
         
         stroke_read_model.add(Dropout(self.l1_drop))
-        stroke_read_model.add(Conv2D(96, (3,3)))
-        stroke_read_model.add(MaxPooling2D(3,3))
+        stroke_read_model.add(Conv2D(96, (3,3),padding='same'))
+        stroke_read_model.add(MaxPooling2D(3,3,padding='same'))
         
-        stroke_read_model.add(Conv2D(96, (3,3)))
-        stroke_read_model.add(MaxPooling2D(3,3))
+        stroke_read_model.add(Conv2D(96, (3,3),padding='same'))
+        stroke_read_model.add(MaxPooling2D(3,3,padding='same'))
         stroke_read_model.add(Flatten())
         
     #    stroke_read_model.add(LSTM(128, return_sequences = True))
@@ -110,10 +121,12 @@ class DoodleModel():
         return evaluation
 
 
-def run_model(x_train, y_train, x_test, y_test, epochs=10, l1_drop=0.1,
+def run_model(drawings, y, stroke_count=STROKE_COUNT, point_count=POINT_COUNT,
+              epochs=10, l1_drop=0.1,
               l2_drop=0.1, l3_drop=0.1, l4_drop=0.1 ,l5_drop=0.1):
     _model = DoodleModel(
-                   x_train, y_train, x_test, y_test, epochs=epochs, 
+                   drawings, y, stroke_count=stroke_count, point_count=point_count,
+                   epochs=epochs, 
                    l1_drop=l1_drop, l2_drop=l2_drop, l3_drop=l3_drop, l4_drop=l4_drop,
                    l5_drop=l5_drop)
     
@@ -127,23 +140,29 @@ bounds = [
           {'name': 'batch_size',       'type': 'discrete',    'domain': (10, 100, 500)},
           {'name': 'epochs',           'type': 'discrete',    'domain': (5, 10, 20)}]
 
-bounds = [{'name': 'l1_drop',          'type': 'continuous',  'domain': (0.0, 0.3)},
+bounds = [
+          {'name': 'l1_drop',          'type': 'continuous',  'domain': (0.0, 0.3)},
           {'name': 'l2_drop',          'type': 'continuous',  'domain': (0.0, 0.3)},
           {'name': 'l3_drop',          'type': 'continuous',  'domain': (0.0, 0.3)},
           {'name': 'l4_drop',          'type': 'continuous',  'domain': (0.0, 0.3)},
           {'name': 'l5_drop',          'type': 'continuous',  'domain': (0.0, 0.3)},
-        {'name': 'epochs',           'type': 'discrete',    'domain': (20, 50, 100)}]
+        {'name': 'epochs',           'type': 'discrete',    'domain': (20, 50, 100)},
+        {'name': 'stroke_count',           'type': 'discrete',    'domain': (20, 10, 30)},
+        {'name': 'point_count',           'type': 'discrete',    'domain': (30, 50, 100)}]
 
-def f(parameters, x_train, y_train, x_test, y_test):
+def f(parameters, drawings, y):
     parameters = parameters[0]
     evaluation = run_model(
-        x_train, y_train, x_test, y_test,
-        l1_drop=parameters[0],
-        l2_drop=parameters[1],
-        l3_drop=parameters[2],
-        l4_drop=parameters[3],
-        l5_drop=parameters[4],
-        epochs = int(parameters[5]),)
+        drawings, y,
+#        l1_drop=parameters[0],
+#        l2_drop=parameters[1],
+#        l3_drop=parameters[2],
+#        l4_drop=parameters[3],
+#        l5_drop=parameters[4],
+#        epochs = int(parameters[5]),
+        stroke_count=int(parameters[6]),
+        point_count=int(parameters[7]),
+        )
     print("LOSS:\t{0} \t ACCURACY:\t{1} \n TOP_3:\t{1}".format(evaluation[0], 
           evaluation[1], evaluation[2]))
     return evaluation[0]
@@ -159,14 +178,9 @@ drawings = data['drawing']
 y = data['word'][:10000]
 y = pd.get_dummies(y)
 drawings = drawings[:10000]
-X = stack_3d_fast(drawings, STROKE_COUNT, POINT_COUNT)
-X = np.swapaxes(X, 2, 3)
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,
-                                                    random_state=2)
 # optimizer
-objective = partial(f, x_train=X_train, y_train=np.array(y_train), x_test=X_test, 
-                    y_test=np.array(y_test))
+objective = partial(f, drawings=drawings, y=y)
 
 opt_mnist = GPyOpt.methods.BayesianOptimization(f=objective, domain=bounds)
 
@@ -189,7 +203,7 @@ Optimized Parameters:
 bounds[1]["name"],opt_mnist.x_opt[1],
 bounds[2]["name"],opt_mnist.x_opt[2],
 bounds[3]["name"],opt_mnist.x_opt[3],
-bounds[4]["name"],opt_mnist.x_opt[4],
-bounds[5]["name"],opt_mnist.x_opt[5]))
+bounds[6]["name"],opt_mnist.x_opt[6],
+bounds[7]["name"],opt_mnist.x_opt[7]))
 
 print("optimized loss: {0}".format(opt_mnist.fx_opt))
