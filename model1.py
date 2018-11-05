@@ -39,34 +39,35 @@ def create_model(y):
     stroke_read_model = Sequential()
     #stroke_read_model.add(BatchNormalization(input_shape = (None,)+X.shape[2:]))
     # filter count and length are taken from the script https://github.com/tensorflow/models/blob/master/tutorials/rnn/quickdraw/train_model.py
+    #stroke_read_model.add(BatchNormalization(input_shape=(STROKE_COUNT, POINT_COUNT, 2)))
     stroke_read_model.add(Conv2D(16, (3,3), input_shape=(STROKE_COUNT, POINT_COUNT, 2 )))
-    stroke_read_model.add(Dropout(0.1))
+    stroke_read_model.add(Dropout(0.3))
     #stroke_read_model.add(MaxPooling2D(3,3))
-    stroke_read_model.add(Conv2D(32, (5,5)))
+    stroke_read_model.add(Conv2D(32, (5,5), padding='same'))
     stroke_read_model.add(Dropout(0.1))
-    stroke_read_model.add(Conv2D(64, (5,5)))
+    stroke_read_model.add(Conv2D(64, (5,5), padding='same'))
     
-    stroke_read_model.add(Dropout(0.1))
+    stroke_read_model.add(Dropout(0.5))
     stroke_read_model.add(Conv2D(96, (3,3)))
     stroke_read_model.add(MaxPooling2D(3,3))
-    
-    stroke_read_model.add(Conv2D(96, (3,3)))
+    stroke_read_model.add(Conv2D(96, (3,3), padding='same'))
+    stroke_read_model.add(Conv2D(128, (3,3), padding='same'))
     stroke_read_model.add(MaxPooling2D(3,3))
     stroke_read_model.add(Flatten())
     
 #    stroke_read_model.add(LSTM(128, return_sequences = True))
-    stroke_read_model.add(Dropout(0.3))
+    #stroke_read_model.add(Dropout(0.3))
 #    stroke_read_model.add(LSTM(128, return_sequences = False))
     
     stroke_read_model.add(Dense(1024))
-    stroke_read_model.add(Dropout(0.1))
+    stroke_read_model.add(Dropout(0.4))
     stroke_read_model.add(Dense(512))
-    stroke_read_model.add(Dropout(0.1))
-    stroke_read_model.add(Dense(128))
-    stroke_read_model.add(Dropout(0.1))
+    stroke_read_model.add(Dropout(0.3))
+    stroke_read_model.add(Dense(512))
+    stroke_read_model.add(Dropout(0.3))
     stroke_read_model.add(Dense(len(word_encoder.classes_), activation = 'softmax'))
     optimizer = SGD(lr=0.001, decay=0, momentum=0.5, nesterov=True)
-    #optimizer = RMSprop(lr=0.001)
+    #optimizer = Adam(lr=0.001)
     stroke_read_model.compile(optimizer = optimizer, 
                               loss = 'categorical_crossentropy', 
                               metrics = ['categorical_accuracy', top_3_accuracy])
@@ -92,7 +93,7 @@ def vis(history, save_path):
     plt.savefig(save_path+'_loss.png') 
 
 if __name__ == '__main__':
-    data = pd.read_csv(r"C:\Users\kondrat\.spyder-py3\first_10.csv")
+    data = pd.read_csv(r"C:\Users\kondrat\.spyder-py3\all_10%.csv")
     #data = data[data['word'].isin(['airplane', 'ambulance', 'ant', 'arm', 'axe'])]
     drawings = data['drawing']
     #drawing = drawings[16249]   
@@ -100,20 +101,20 @@ if __name__ == '__main__':
     
     
     #max_stroke = max(stack_3d(drawing) for drawing in drawings)
-    y = data['word'][:900000]
+    y = data['word'][:100000]
     config = tf.ConfigProto(allow_soft_placement = True)
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         with tf.device('/gpu:1'):
             model, word_encoder = create_model(y)
             y = pd.get_dummies(y)
-            drawings = drawings[:900000]
+            drawings = drawings[:100000]
             X = stack_3d_fast(drawings, STROKE_COUNT, POINT_COUNT)
             X = np.swapaxes(X, 2, 3)    
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,
     	    random_state=2)
             history = model.fit(X_train, y_train, epochs=100,
-            validation_data=(X_test, y_test), batch_size=128, verbose=2)		
+            validation_data=(X_test, y_test), batch_size=256, verbose=2)		
             result = model.evaluate(X_test, y_test)
             y_test_val = np.array(y_test)
             y_test_val = np.argmax(y_test_val, axis=1)

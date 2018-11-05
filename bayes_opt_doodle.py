@@ -12,12 +12,12 @@ import numpy as np
 from mapk import mapk
 
 POINT_COUNT = 100
-STROKE_COUNT = 30
+STROKE_COUNT = 10
 
 from sklearn.preprocessing import LabelEncoder
 from keras.models import Sequential
 from keras.layers import BatchNormalization, Conv1D, Conv2D, Dense, Dropout, Flatten, \
- MaxPooling2D
+ MaxPooling2D, MaxPooling1D, TimeDistributed, LSTM
 from sklearn.model_selection import train_test_split
 #from keras.layers import CuDNNLSTM as LSTM # this one is about 3x faster on GPU instances
 from keras.metrics import top_k_categorical_accuracy
@@ -38,8 +38,9 @@ class DoodleModel():
 
     def __init__(self,  drawings, y, point_count=POINT_COUNT, 
                  stroke_count=STROKE_COUNT,
-                 epochs=10, l1_drop=0.1,
-                 l2_drop=0.1, l3_drop=0.1 ,l4_drop=0.1 ,l5_drop=0.1):
+                 epochs=100, l1_drop=0.1,
+                 l2_drop=0.1, l3_drop=0.1 ,l4_drop=0.1 ,l5_drop=0.1,
+                 cells1=128, cells2=128, filters=64):
         X = stack_3d_fast(drawings, stroke_count, point_count)
         X = np.swapaxes(X, 2, 3)
         
@@ -54,10 +55,14 @@ class DoodleModel():
         self.l3_drop = l3_drop
         self.l4_drop = l4_drop
         self.l5_drop = l5_drop
+        self.cells1 = cells1
+        self.cells2 = cells2
+        self.filters = filters
         self.point_count = point_count
         self.stroke_count = stroke_count
         
-        self._model = self.stroke_model()
+        #self._model = self.stroke_model()
+        self._model = self.model_time_dist()
         self.batch_size = 128
         
 
@@ -104,6 +109,32 @@ class DoodleModel():
         #stroke_read_model.summary()
         return stroke_read_model
 
+    def model_time_dist(self):
+        model = Sequential()
+        model.add(TimeDistributed(Conv1D(16, 3), input_shape=(self.stroke_count, self.point_count, 2 )))
+        model.add(TimeDistributed(MaxPooling1D(3)))
+        model.add(TimeDistributed(Dropout(0.2)))
+        model.add(TimeDistributed(Conv1D(32, 3)))
+        model.add(TimeDistributed(MaxPooling1D(3)))
+        model.add(TimeDistributed(Conv1D(32, 3)))
+        model.add(TimeDistributed(MaxPooling1D(3)))
+        model.add(TimeDistributed(Flatten()))
+        model.add(Dropout(0.24))
+        model.add(LSTM(64, return_sequences = True))
+        model.add(Dropout(0.19))
+        model.add(LSTM(64, return_sequences = False))
+        model.add(Dropout(0.25))
+        model.add(Dense(512))
+        model.add(Dropout(0.02))
+        model.add(Dense(10, activation = 'softmax'))
+        #optimizer = SGD(lr=0.01, decay=0, momentum=0.5, nesterov=True)
+        optimizer = RMSprop(lr=0.001)
+        model.compile(optimizer = optimizer, 
+                                  loss = 'categorical_crossentropy', 
+                                  metrics = ['categorical_accuracy', top_3_accuracy])
+        #model.summary()
+        return model
+
     def model_fit(self):
 
         early_stopping = EarlyStopping(patience=0, verbose=1)
@@ -122,13 +153,16 @@ class DoodleModel():
 
 
 def run_model(drawings, y, stroke_count=STROKE_COUNT, point_count=POINT_COUNT,
-              epochs=10, l1_drop=0.1,
-              l2_drop=0.1, l3_drop=0.1, l4_drop=0.1 ,l5_drop=0.1):
+              epochs=100, l1_drop=0.1,
+              l2_drop=0.1, l3_drop=0.1, l4_drop=0.1 ,l5_drop=0.1, cells1=128,
+              cells2=128, filters=64):
     _model = DoodleModel(
                    drawings, y, stroke_count=stroke_count, point_count=point_count,
                    epochs=epochs, 
-                   l1_drop=l1_drop, l2_drop=l2_drop, l3_drop=l3_drop, l4_drop=l4_drop,
-                   l5_drop=l5_drop)
+                   l1_drop=l1_drop, l2_drop=l2_drop, l3_drop=l3_drop, 
+                   l4_drop=l4_drop,
+                   l5_drop=l5_drop, cells1=cells1, cells2=cells2, 
+                   filters=filters)
     
     model_evaluation = _model.model_evaluate()
     return model_evaluation
@@ -146,23 +180,28 @@ bounds = [
           {'name': 'l3_drop',          'type': 'continuous',  'domain': (0.0, 0.3)},
           {'name': 'l4_drop',          'type': 'continuous',  'domain': (0.0, 0.3)},
           {'name': 'l5_drop',          'type': 'continuous',  'domain': (0.0, 0.3)},
-        {'name': 'epochs',           'type': 'discrete',    'domain': (20, 50, 100)},
-        {'name': 'stroke_count',           'type': 'discrete',    'domain': (20, 10, 30)},
-        {'name': 'point_count',           'type': 'discrete',    'domain': (30, 50, 100)}]
+          {'name': 'filters',          'type': 'discrete',  'domain': (32 , 64 , 96)},
+          {'name': 'cells1',          'type': 'discrete',  'domain': (64, 128, 256, 512)},
+          {'name': 'cells2',          'type': 'discrete',  'domain': (64, 128, 256, 512)},]
+       # {'name': 'epochs',           'type': 'discrete',    'domain': (20, 50, 100)},
+        #{'name': 'stroke_count',           'type': 'discrete',    'domain': (10, 20, 30)},
+        #{'name': 'point_count',           'type': 'discrete',    'domain': (30, 50, 100)}]
 
 def f(parameters, drawings, y):
     parameters = parameters[0]
+    print(parameters)
     evaluation = run_model(
         drawings, y,
-#        l1_drop=parameters[0],
-#        l2_drop=parameters[1],
-#        l3_drop=parameters[2],
-#        l4_drop=parameters[3],
-#        l5_drop=parameters[4],
+        l1_drop=parameters[0],
+        l2_drop=parameters[1],
+        l3_drop=parameters[2],
+        l4_drop=parameters[3],
+        l5_drop=parameters[4],
 #        epochs = int(parameters[5]),
-        stroke_count=int(parameters[6]),
-        point_count=int(parameters[7]),
-        )
+        filters=int(parameters[5]),
+        cells1=int(parameters[6]),
+        cells2=int(parameters[7]))
+    
     print("LOSS:\t{0} \t ACCURACY:\t{1} \n TOP_3:\t{1}".format(evaluation[0], 
           evaluation[1], evaluation[2]))
     return evaluation[0]
@@ -198,11 +237,15 @@ Optimized Parameters:
 \t{6}:\t{7}
 \t{8}:\t{9}
 \t{10}:\t{11}
+\t{12}:\t{13}
+\t{14}:\t{15}
 
 """.format(bounds[0]["name"],opt_mnist.x_opt[0],
 bounds[1]["name"],opt_mnist.x_opt[1],
 bounds[2]["name"],opt_mnist.x_opt[2],
 bounds[3]["name"],opt_mnist.x_opt[3],
+bounds[4]["name"],opt_mnist.x_opt[4],
+bounds[5]["name"],opt_mnist.x_opt[5],
 bounds[6]["name"],opt_mnist.x_opt[6],
 bounds[7]["name"],opt_mnist.x_opt[7]))
 
