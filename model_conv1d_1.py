@@ -6,16 +6,16 @@ Created on Mon Oct  8 15:14:31 2018
 """
 
 
-from ailab_util import AILabUtil
-if AILabUtil() != None:
-    print('run')
+#from ailab_util import AILabUtil
+#if AILabUtil() != None:
+#    print('run')
 
 from sklearn.preprocessing import LabelEncoder
 from keras.models import Sequential
 from keras.layers import BatchNormalization, Conv1D, Conv2D, Dense, Dropout, Flatten, \
- MaxPooling2D, TimeDistributed, MaxPooling1D
+ MaxPooling2D, TimeDistributed, MaxPooling1D, LSTM
 from sklearn.model_selection import train_test_split
-from keras.layers import CuDNNLSTM as LSTM # this one is about 3x faster on GPU instances
+#from keras.layers import CuDNNLSTM as LSTM # this one is about 3x faster on GPU instances
 from keras.metrics import top_k_categorical_accuracy
 from test_util import stack_3d_fast
 from keras.optimizers import SGD, Adam, RMSprop
@@ -24,9 +24,13 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from mapk import mapk
+import os
+import keras
 
 POINT_COUNT = 100
 STROKE_COUNT = 10
+NCATS = 340
+DP_DIR = r"C:\Users\user\Desktop\doodle\c_shuffled"
 
 def top_3_accuracy(x,y): 
     return top_k_categorical_accuracy(x,y, 3)
@@ -103,6 +107,19 @@ def model_time_dist(y):
     model.summary()
     return model, word_encoder
 
+
+def image_generator_xd(size, batchsize, ks, words_mapping):
+    while True:
+        for k in np.random.permutation(ks):
+            filename = os.path.join(DP_DIR, 'all_10%_k{}.csv'.format(k))
+            for df in pd.read_csv(filename, chunksize=batchsize):
+                X = stack_3d_fast(df['drawing'], STROKE_COUNT, POINT_COUNT)
+                X = np.swapaxes(X, 2, 3) 
+                df['id'] = df['word'].apply(lambda x: words_mapping[x])
+                y = keras.utils.to_categorical(df['id'], num_classes=NCATS)
+                yield X, y
+
+
 def vis(history, save_path):
     'save training process plots'
     plt.plot(history['categorical_accuracy'])
@@ -122,30 +139,39 @@ def vis(history, save_path):
     plt.savefig(save_path+'_loss.png') 
 
 if __name__ == '__main__':
-    data = pd.read_csv(r"C:\Users\kondrat\.spyder-py3\all_10%.csv")
+    data = pd.read_csv(r"C:\Users\user\Desktop\doodle\all_10%.csv")
+    x = list(data['word'].unique())
+    words_mapping =  {k:v for v,k in enumerate(x)}
     #data = data[data['word'].isin(['airplane', 'ambulance', 'ant', 'arm', 'axe'])]
     drawings = data['drawing']
     #drawing = drawings[16249]   
     #x_3d, x_3d_padded = stack_3d(drawing)
-    
-    
+    size = 128
+    batchsize = 340
+    STEPS = 4000
+    EPOCHS = 1
+    train_gen = image_generator_xd(size, batchsize, range(90), words_mapping)
+    val_gen = image_generator_xd(size, batchsize, range(90,100), words_mapping)
     #max_stroke = max(stack_3d(drawing) for drawing in drawings)
-    y = data['word'][:500000]
+    y = data['word'][:5000]
     config = tf.ConfigProto(allow_soft_placement = True)
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
-        with tf.device('/gpu:2'):
+        #with tf.device('/gpu:2'):
             model, word_encoder = model_time_dist(y)
             y = pd.get_dummies(y)
-            drawings = drawings[:500000]
+            drawings = drawings[:5000]
             X = stack_3d_fast(drawings, STROKE_COUNT, POINT_COUNT)
             X = np.swapaxes(X, 2, 3)    
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,
     	    random_state=2)
-            history = model.fit(X_train, y_train, epochs=300,
-            validation_data=(X_test, y_test), batch_size=128, verbose=2)		
-            result = model.evaluate(X_test, y_test)
+            #history = model.fit(np.array(X_train), np.array(y_train), epochs=300,
+             #                   validation_data=(np.array(X_test), np.array(y_test)), batch_size=128, verbose=2)		
+            history = model.fit_generator(train_gen, steps_per_epoch=STEPS, epochs=EPOCHS,
+                                          validation_data=val_gen,
+                                          validation_steps=100)
             y_test_val = np.array(y_test)
+            result = model.evaluate(X_test, y_test_val)
             y_test_val = np.argmax(y_test_val, axis=1)
             predicted = model.predict(X_test)
             predicted = np.argsort(predicted, axis=1)[:,-3:][:, ::-1]

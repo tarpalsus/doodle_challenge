@@ -22,7 +22,7 @@ from ast import literal_eval
 POINT_COUNT = 100
 STROKE_COUNT = 30
 
-def drawing_to_np(drawing, shape=(100, 100)):
+def drawing_to_np(drawing, shape=(100, 100), stroke_count=STROKE_COUNT):
     # evaluates the drawing array
     drawing = eval(drawing)
     #fig, ax = plt.subplots()
@@ -103,7 +103,7 @@ def stack_3d_fast(drawings, stroke_count, point_count):
 
 if __name__ == '__main__':
 
-    data = pd.read_csv(r"first_10.csv")
+    data = pd.read_csv(r"C:\Users\user\Desktop\doodle\first_10.csv")
     drawings = data['drawing'][:1000]
 #    drawing = drawings[16249]
 #    x = drawing_to_np(drawing)
