@@ -111,7 +111,7 @@ if __name__ == '__main__':
 #    for i in range(2):
 #        plt.imshow(x[i,:,:])
 #    plt.show()
-    #x = _stack_it(drawing)    
+    x = _stack_it(drawing)    
     #x_3d, x_3d_padded = stack_3d(drawing)
     
     
